@@ -41,7 +41,7 @@ namespace PressReaderFetcher
                 Console.WriteLine("Publication name can be found in the the url of the mag, for example, ");
                 Console.WriteLine("https://www.pressreader.com/uk/retro-gamer/");
                 Console.WriteLine("retro-gamer is the publication name");
-
+                Console.WriteLine("============OUTPUT TYPE============");
                 Console.WriteLine("-type=img - This is for the output type.");
                 Console.WriteLine("Valid types are img or pdf. Default is img");
                 Console.WriteLine("PDF output is made from the same images as img output");
