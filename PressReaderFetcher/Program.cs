@@ -50,15 +50,6 @@ namespace PressReaderFetcher
                 Console.WriteLine("Press return/enter to exit.");
                 Console.ReadLine();
                 Environment.Exit(0);
-                //Console.WriteLine("Please enter your accesstoken");
-                //Console.WriteLine("This can be found by opening your browser dev tools on pressreader.com and");
-                //Console.WriteLine("searching for \"accesstoken\" in the html. The accesstoken will probably end in !!");
-                //accesstoken = Console.ReadLine();
-
-
-                //Console.WriteLine("Please enter a publication name (get it from the URL)");
-                //Console.WriteLine("Example: retro-gamer or the-wall-street-journal");
-                //pubname = Console.ReadLine();
             }
             else 
             {
@@ -76,10 +67,6 @@ namespace PressReaderFetcher
                         }
                         else if (argument.StartsWith("-t="))
                         {
-                            //string date = argument.Split('=')[1];
-                            //List<string> dates = new List<string>();
-                            //dates.Add(date);
-                            //getIssues(dates);
                             type = argument.Split('=')[1];
                         }
                     }
@@ -100,6 +87,9 @@ namespace PressReaderFetcher
             {
                 string cidjson = client.DownloadString("https://ingress.pressreader.com/services/catalog/v1/routes/publication?accessToken=" + accesstoken + "&publication=" + pubname);
                 CidInfo cid = JsonConvert.DeserializeObject<CidInfo>(cidjson);
+                
+                string pubstrjson = client.DownloadString("https://ingress.pressreader.com/services/IssueInfo/GetIssueInfoByCid?accessToken=" + accesstoken + "&cid=" + cid.cid);
+                PubStr.Root pubstr = JsonConvert.DeserializeObject<PubStr.Root>(pubstrjson);
 
                 string pubjson = client.DownloadString("https://ingress.pressreader.com/services/calendar/get?accessToken=" + accesstoken + "&cid=" + cid.cid);
                 PubDates.Root pubdates = JsonConvert.DeserializeObject<PubDates.Root>(pubjson);
@@ -113,7 +103,13 @@ namespace PressReaderFetcher
                         foreach (var day in month.Value)
                         {
                             int pubday = day.Key;
-                            pubids.Add(cid.cid + pubyear + pubmonth.ToString("00") + pubday.ToString("00") + "00000000001001");
+                            string v = day.Value.V;
+                            if (day.Value.V == "")
+                            {
+                                v = "00";
+                            }
+                            
+                            pubids.Add(cid.cid + pubyear + pubmonth.ToString("00") + pubday.ToString("00") + "000000" + v + "001001");
                         }
                     }
                 }
@@ -133,34 +129,42 @@ namespace PressReaderFetcher
                     string pagekeysjson = client.DownloadString("https://ingress.pressreader.com/services/IssueInfo/GetPageKeys?accessToken=" + accesstoken + "&issue=" + pubid + "&pageNumber=0");
                     PageKeys.Root pagekeys = JsonConvert.DeserializeObject<PageKeys.Root>(pagekeysjson);
 
-                    int height = 0;
-                    int width = 0;
-                    using (MemoryStream stream = new MemoryStream(client.DownloadData("https://i.prcdn.co/img?file=" + pubid + "&page=1")))
-                    {
-                        System.Drawing.Image image = System.Drawing.Image.FromStream(stream, false, false);
-                        height = image.Height;
-                        width = image.Width;
-                    }
-
                     string title = MakeValidFileName(pubinfo.Newspaper.Name);
                     Directory.CreateDirectory(title);
-
-                    int scale = (int)Math.Floor((double)Math.Min(100 * pubinfo.MagnifierPageSizes[pubinfo.MagnifierPageSizes.Count - 1].W / width, 100 * pubinfo.MagnifierPageSizes[pubinfo.MagnifierPageSizes.Count - 1].H / height));
                     string pubdate = pubinfo.Issue.IssueDate.ToString(@"yyyy-MM-dd");
+
+                    int height = 0;
+                    int size = 0;
+                    //int scale = 0;
+                    bool usescale = true;
+                    try
+                    {
+                        MemoryStream stream = new MemoryStream(client.DownloadData("https://i.prcdn.co/img?file=" + pubid + "&page=1"));
+                        System.Drawing.Image image = System.Drawing.Image.FromStream(stream, false, false);
+                        height = image.Height;
+                        size = image.Width;
+                        size = (int)Math.Floor((double)Math.Min(100 * pubinfo.MagnifierPageSizes[pubinfo.MagnifierPageSizes.Count - 1].W / size, 100 * pubinfo.MagnifierPageSizes[pubinfo.MagnifierPageSizes.Count - 1].H / height));
+                        usescale = true;
+                    }
+                    catch (Exception)
+                    {
+                        size = pubinfo.MagnifierPageSizes[pubinfo.MagnifierPageSizes.Count - 1].W;
+                        usescale = false;
+                    }
 
                     if (type == "pdf")
                     {
-                        getPdf(pubid, title, scale, pubdate, pagekeys);
+                        getPdf(pubid, title, size, pubdate, pagekeys, usescale);
                     }
-                    else if(type == "img")
+                    else if (type == "img")
                     {
-                        getImg(pubid, title, scale, pubdate, pagekeys);
+                        getImg(pubid, title, size, pubdate, pagekeys, usescale);
                     }
                 }
             }
         }
 
-        public static void getPdf(string pubid, string title, int scale, string pubdate, PageKeys.Root pagekeys)
+        public static void getPdf(string pubid, string title, int width, string pubdate, PageKeys.Root pagekeys, bool usescale)
         {
             string filename = title + " - " + pubdate + ".pdf";
 
@@ -175,9 +179,40 @@ namespace PressReaderFetcher
                 {
                     using (var client = new WebClient())
                     {
+                        bool gotpage = false;
                         Console.Write("\rPage: " + (page.PageNumber));
+                        byte[] data = null;
+                        if (usescale == true)
+                        {
+                            while (gotpage == false)
+                            {
+                                try
+                                {
+                                    data = client.DownloadData("https://i.prcdn.co/img?file=" + pubid + "&page=" + page.PageNumber + "&scale=" + width + "&ticket=" + HttpUtility.UrlEncode(page.Key));
+                                    gotpage = true;
+                                }
+                                catch (Exception)
+                                {
+                                    gotpage = false;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            while (gotpage == false)
+                            {
+                                try
+                                {
+                                    data = client.DownloadData("https://i.prcdn.co/img?file=" + pubid + "&page=" + page.PageNumber + "&width=" + width + "&ticket=" + HttpUtility.UrlEncode(page.Key));
+                                    gotpage = true;
+                                }
+                                catch (Exception)
+                                {
 
-                        byte[] data = client.DownloadData("https://i.prcdn.co/img?file=" + pubid + "&page=" + page.PageNumber + "&scale=" + scale + "&ticket=" + HttpUtility.UrlEncode(page.Key));
+                                    gotpage = false;
+                                }
+                            }
+                        }
 
                         Image image = new Image(ImageDataFactory.Create(data));
                         Document doc = new Document(pdfDoc, new PageSize(image.GetImageWidth(), image.GetImageHeight()));
@@ -195,7 +230,7 @@ namespace PressReaderFetcher
                 Console.WriteLine(title + " - " + title + " Already Exists, Skipping.");
             }
         }
-        public static void getImg(string pubid, string title, int scale, string pubdate, PageKeys.Root pagekeys)
+        public static void getImg(string pubid, string title, int width, string pubdate, PageKeys.Root pagekeys, bool usescale)
         {
             foreach (var page in pagekeys.PageKeys)
             {
@@ -207,8 +242,38 @@ namespace PressReaderFetcher
                     {
                         Console.WriteLine("=============================================================================");
                         Console.WriteLine("Fetching: " + filename);
+                        bool gotpage = false;
 
-                        client.DownloadFile("https://i.prcdn.co/img?file=" + pubid + "&page=" + page.PageNumber + "&scale=" + scale + "&ticket=" + HttpUtility.UrlEncode(page.Key), title + "\\" + filename);
+                        if (usescale == true)
+                        {
+                            while (gotpage == false)
+                            {
+                                try
+                                {
+                                    client.DownloadFile("https://i.prcdn.co/img?file=" + pubid + "&page=" + page.PageNumber + "&scale=" + width + "&ticket=" + HttpUtility.UrlEncode(page.Key), title + "\\" + filename);
+                                    gotpage = true;
+                                }
+                                catch (Exception)
+                                {
+                                    gotpage = false;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            while (gotpage == false)
+                            {
+                                try
+                                {
+                                    client.DownloadFile("https://i.prcdn.co/img?file=" + pubid + "&page=" + page.PageNumber + "&width=" + width + "&ticket=" + HttpUtility.UrlEncode(page.Key), title + "\\" + filename);
+                                    gotpage = true;
+                                }
+                                catch (Exception)
+                                {
+                                    gotpage = false;
+                                }
+                            }
+                        }
                     }
                     else
                     {
