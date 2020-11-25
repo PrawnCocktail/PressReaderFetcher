@@ -20,6 +20,7 @@ namespace PressReaderFetcher
         public static string type = "img";
         public static string accesstoken = string.Empty;
 
+
         static void Main(string[] args)
         {
             if (args.Length == 0)
@@ -41,6 +42,9 @@ namespace PressReaderFetcher
                 Console.WriteLine("Publication name can be found in the the url of the mag, for example, ");
                 Console.WriteLine("https://www.pressreader.com/uk/retro-gamer/");
                 Console.WriteLine("retro-gamer is the publication name");
+                Console.WriteLine("-i=PUB:DATE - For getting a single issue.");
+                Console.WriteLine("To get a single issue you must supply the pubname and date like:");
+                Console.WriteLine("-i=retro-gamer:20201220 *Date format is YYYYMMDD*");
                 Console.WriteLine("============OUTPUT TYPE============");
                 Console.WriteLine("-type=img - This is for the output type.");
                 Console.WriteLine("Valid types are img or pdf. Default is img");
@@ -57,17 +61,22 @@ namespace PressReaderFetcher
                 {
                     accesstoken = args[0].Split('=')[1];
 
-                    List<string> pubnames = new List<string>();
+                    List<PubListInitial> pubnames = new List<PubListInitial>();
 
                     foreach (var argument in args)
                     {
                         if (argument.StartsWith("-p="))
                         {
-                            pubnames.Add(argument.Split('=')[1]);
+                            pubnames.Add(new PubListInitial { pubname = argument.Split('=')[1], date = string.Empty } );
                         }
                         else if (argument.StartsWith("-t="))
                         {
                             type = argument.Split('=')[1];
+                        }
+                        else if (argument.StartsWith("-i="))
+                        {
+                            string result = argument.Split('=')[1];
+                            pubnames.Add(new PubListInitial { pubname = result.Split(':')[0], date = result.Split(':')[1] } );
                         }
                     }
                     Console.WriteLine("Fetching Data...");
@@ -80,12 +89,12 @@ namespace PressReaderFetcher
             }
         }
 
-        static void getPub(string pubname)
+        static void getPub(PubListInitial pub)
         {
             List<string> pubids = new List<string>();
             using (var client = new WebClient())
             {
-                string cidjson = client.DownloadString("https://ingress.pressreader.com/services/catalog/v1/routes/publication?accessToken=" + accesstoken + "&publication=" + pubname);
+                string cidjson = client.DownloadString("https://ingress.pressreader.com/services/catalog/v1/routes/publication?accessToken=" + accesstoken + "&publication=" + pub.pubname);
                 CidInfo cid = JsonConvert.DeserializeObject<CidInfo>(cidjson);
                 
                 string pubstrjson = client.DownloadString("https://ingress.pressreader.com/services/IssueInfo/GetIssueInfoByCid?accessToken=" + accesstoken + "&cid=" + cid.cid);
@@ -108,8 +117,22 @@ namespace PressReaderFetcher
                             {
                                 v = "00";
                             }
-                            
-                            pubids.Add(cid.cid + pubyear + pubmonth.ToString("00") + pubday.ToString("00") + "000000" + v + "001001");
+
+                            if (!string.IsNullOrEmpty(pub.date))
+                            {
+                                if (pub.date == pubyear + pubmonth.ToString("00") + pubday.ToString("00"))
+                                {
+                                    pubids.Add(cid.cid + pubyear + pubmonth.ToString("00") + pubday.ToString("00") + "000000" + v + "001001");
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+                            }
+                            else
+                            {
+                                pubids.Add(cid.cid + pubyear + pubmonth.ToString("00") + pubday.ToString("00") + "000000" + v + "001001");
+                            }
                         }
                     }
                 }

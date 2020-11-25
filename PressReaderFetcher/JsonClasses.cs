@@ -94,4 +94,10 @@ namespace PressReaderFetcher
         public string Date { get; set; }
         public string Name { get; set; }
     }
+
+    public class PubListInitial
+    {
+        public string pubname { get; set; }
+        public string date { get; set; }
+    }
 }
